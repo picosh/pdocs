@@ -157,19 +157,19 @@ type Page struct {
 }
 
 type DocConfig struct {
-	out     string
-	tmpl    string
-	sitemap []*Sitemap
-	pageTmpl string
+	Out      string
+	Tmpl     string
+	Sitemap  []*Sitemap
+	PageTmpl string
 }
 
 func (config *DocConfig) GenPage(templates []string, page *Page) error {
-	tmpl := config.pageTmpl
+	tmpl := config.PageTmpl
 	if page.Data.Template != "" {
 		tmpl = page.Data.Template
 	}
 
-	ts, err := renderTemplate(templates, filepath.Join(config.tmpl, tmpl))
+	ts, err := renderTemplate(templates, filepath.Join(config.Tmpl, tmpl))
 
 	if err != nil {
 		return err
@@ -188,7 +188,7 @@ func (config *DocConfig) GenPage(templates []string, page *Page) error {
 	}
 
 	fp := filepath.Join(
-		config.out,
+		config.Out,
 		fmt.Sprintf("%s.html", name),
 	)
 	err = os.WriteFile(fp, buf.Bytes(), 0644)
@@ -200,18 +200,18 @@ func (config *DocConfig) GenPage(templates []string, page *Page) error {
 }
 
 func (config *DocConfig) GenSite() error {
-	tmpl, err := walkDir(config.tmpl)
+	tmpl, err := walkDir(config.Tmpl)
 	if err != nil {
 		return err
 	}
 
-	for _, toc := range config.sitemap {
+	for _, toc := range config.Sitemap {
 		for idx := range toc.Children {
 			toc.Children[idx].ParentHref = toc.Href
 		}
 	}
 
-	for idx, toc := range config.sitemap {
+	for idx, toc := range config.Sitemap {
 		if toc.Page == "" {
 			continue
 		}
@@ -227,11 +227,11 @@ func (config *DocConfig) GenSite() error {
 
 		var prev *Sitemap
 		if idx > 0 {
-			prev = config.sitemap[idx-1]
+			prev = config.Sitemap[idx-1]
 		}
 		var next *Sitemap
-		if idx+1 < len(config.sitemap) {
-			next = config.sitemap[idx+1]
+		if idx+1 < len(config.Sitemap) {
+			next = config.Sitemap[idx+1]
 		}
 
 		err = config.GenPage(tmpl, &Page{
@@ -239,7 +239,7 @@ func (config *DocConfig) GenSite() error {
 			Data:    d,
 			Prev:    prev,
 			Next:    next,
-			Sitemap: config.sitemap,
+			Sitemap: config.Sitemap,
 		})
 		if err != nil {
 			return err
