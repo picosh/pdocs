@@ -63,6 +63,7 @@ func main() {
 		out:     "./docs/public",
 		tmpl:    "./docs/tmpl",
 		sitemap: sitemap,
+    pageTmpl: "post.page.tmpl",
 	}
 
 	err := config.GenSite()
