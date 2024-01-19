@@ -150,6 +150,7 @@ func Pager(dir string) func(p string) string {
 
 type Page struct {
 	Page    string
+	Href string
 	Data    *ParsedText
 	Prev    *Sitemap
 	Next    *Sitemap
@@ -236,6 +237,7 @@ func (config *DocConfig) GenSite() error {
 
 		err = config.GenPage(tmpl, &Page{
 			Page:    toc.Page,
+			Href: 	 toc.Href,
 			Data:    d,
 			Prev:    prev,
 			Next:    next,
