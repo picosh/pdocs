@@ -1,6 +1,6 @@
 module github.com/picosh/pdocs
 
-go 1.21.5
+go 1.21
 
 require (
 	github.com/alecthomas/chroma v0.10.0
@@ -11,6 +11,6 @@ require (
 )
 
 require (
-	github.com/dlclark/regexp2 v1.4.0 // indirect
-	gopkg.in/yaml.v2 v2.3.0 // indirect
+	github.com/dlclark/regexp2 v1.10.0 // indirect
+	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
