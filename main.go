@@ -206,6 +206,13 @@ func AnchorTagUrl(title string) string {
 	return fmt.Sprintf("#%s", hyphen)
 }
 
+func AnchorTagSitemap(title string) *Sitemap {
+	return &Sitemap{
+		Text: title,
+		Href: AnchorTagUrl(title),
+	}
+}
+
 func walkSitemap(sitemap *Sitemap, mapper map[string][]*Sitemap) {
 	for _, toc := range sitemap.Children {
 		if toc.Tag == "" {
