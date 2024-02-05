@@ -77,7 +77,6 @@ func parseMarkdown(text string) (*ParsedText, error) {
 	md := goldmark.New(
 		goldmark.WithExtensions(
 			extension.GFM,
-			extension.Footnote,
 			meta.Meta,
 			hili,
 			&anchor.Extender{
