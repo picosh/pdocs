@@ -200,6 +200,12 @@ func (config *DocConfig) GenPage(templates []string, page *Page) error {
 	return nil
 }
 
+func AnchorTagUrl(title string) string {
+	lower := strings.ToLower(title)
+	hyphen := strings.ReplaceAll(lower, " ", "-")
+	return fmt.Sprintf("#%s", hyphen)
+}
+
 func walkSitemap(sitemap *Sitemap, mapper map[string][]*Sitemap) {
 	for _, toc := range sitemap.Children {
 		if toc.Tag == "" {
