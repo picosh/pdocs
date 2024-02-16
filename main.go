@@ -203,7 +203,9 @@ func (config *DocConfig) GenPage(templates []string, page *Page) error {
 func AnchorTagUrl(title string) string {
 	lower := strings.ToLower(title)
 	hyphen := strings.ReplaceAll(lower, " ", "-")
-	return fmt.Sprintf("#%s", hyphen)
+	period := strings.ReplaceAll(hyphen, ".", "")
+	tick := strings.ReplaceAll(period, "`", "")
+	return fmt.Sprintf("#%s", tick)
 }
 
 func AnchorTagSitemap(title string) *Sitemap {
