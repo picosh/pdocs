@@ -145,6 +145,21 @@ func Pager(dir string) func(p string) string {
 	}
 }
 
+func AnchorTagUrl(title string) string {
+	lower := strings.ToLower(title)
+	hyphen := strings.ReplaceAll(lower, " ", "-")
+	period := strings.ReplaceAll(hyphen, ".", "")
+	tick := strings.ReplaceAll(period, "`", "")
+	return fmt.Sprintf("#%s", tick)
+}
+
+func AnchorTagSitemap(title string) *Sitemap {
+	return &Sitemap{
+		Text: title,
+		Href: AnchorTagUrl(title),
+	}
+}
+
 // ============================================
 
 type Page struct {
@@ -153,14 +168,15 @@ type Page struct {
 	Data         *ParsedText
 	Prev         *Sitemap
 	Next         *Sitemap
-	Sitemap      []*Sitemap
+	Cur          *Sitemap
+	Sitemap      *Sitemap
 	SitemapByTag map[string][]*Sitemap
 }
 
 type DocConfig struct {
 	Out      string
 	Tmpl     string
-	Sitemap  []*Sitemap
+	Sitemap  *Sitemap
 	PageTmpl string
 }
 
@@ -200,21 +216,6 @@ func (config *DocConfig) GenPage(templates []string, page *Page) error {
 	return nil
 }
 
-func AnchorTagUrl(title string) string {
-	lower := strings.ToLower(title)
-	hyphen := strings.ReplaceAll(lower, " ", "-")
-	period := strings.ReplaceAll(hyphen, ".", "")
-	tick := strings.ReplaceAll(period, "`", "")
-	return fmt.Sprintf("#%s", tick)
-}
-
-func AnchorTagSitemap(title string) *Sitemap {
-	return &Sitemap{
-		Text: title,
-		Href: AnchorTagUrl(title),
-	}
-}
-
 func walkSitemap(sitemap *Sitemap, mapper map[string][]*Sitemap) {
 	for _, toc := range sitemap.Children {
 		if toc.Tag == "" {
@@ -239,15 +240,15 @@ func (config *DocConfig) GenSite() error {
 		return err
 	}
 
-	for _, toc := range config.Sitemap {
+	for _, toc := range config.Sitemap.Children {
 		for idx := range toc.Children {
 			toc.Children[idx].ParentHref = toc.Href
 		}
 	}
 
-	sitemapByTag := groupByTag(&Sitemap{Children: config.Sitemap})
+	sitemapByTag := groupByTag(config.Sitemap)
 
-	for idx, toc := range config.Sitemap {
+	for idx, toc := range config.Sitemap.Children {
 		if toc.Page == "" {
 			continue
 		}
@@ -263,17 +264,18 @@ func (config *DocConfig) GenSite() error {
 
 		var prev *Sitemap
 		if idx > 0 {
-			prev = config.Sitemap[idx-1]
+			prev = config.Sitemap.Children[idx-1]
 		}
 		var next *Sitemap
-		if idx+1 < len(config.Sitemap) {
-			next = config.Sitemap[idx+1]
+		if idx+1 < len(config.Sitemap.Children) {
+			next = config.Sitemap.Children[idx+1]
 		}
 
 		err = config.GenPage(tmpl, &Page{
 			Page:         toc.Page,
 			Href:         toc.Href,
 			Data:         d,
+			Cur:          toc,
 			Prev:         prev,
 			Next:         next,
 			Sitemap:      config.Sitemap,
@@ -294,6 +296,8 @@ type Sitemap struct {
 	Href       string
 	Page       string
 	Tag        string
+	Hidden     bool
+	Data       any
 	Children   []*Sitemap
 }
 
