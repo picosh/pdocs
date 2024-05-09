@@ -8,6 +8,7 @@ require (
 	github.com/yuin/goldmark-highlighting v0.0.0-20220208100518-594be1970594
 	github.com/yuin/goldmark-meta v1.1.0
 	go.abhg.dev/goldmark/anchor v0.1.1
+	go.abhg.dev/goldmark/toc v0.10.0
 )
 
 require (

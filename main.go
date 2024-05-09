@@ -12,10 +12,13 @@ import (
 	"github.com/yuin/goldmark"
 	highlighting "github.com/yuin/goldmark-highlighting"
 	meta "github.com/yuin/goldmark-meta"
+	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
 	ghtml "github.com/yuin/goldmark/renderer/html"
+	gtext "github.com/yuin/goldmark/text"
 	"go.abhg.dev/goldmark/anchor"
+	"go.abhg.dev/goldmark/toc"
 )
 
 type MetaData struct {
@@ -61,28 +64,69 @@ func toKeywords(obj interface{}) ([]string, error) {
 	return arr, nil
 }
 
-func parseMarkdown(text string) (*ParsedText, error) {
-	parsed := ParsedText{
-		MetaData: &MetaData{
-			Keywords: []string{},
-		},
+// The toc frontmatter can take a boolean or an integer.
+//
+// A value of -1 or false means "do not generate a toc".
+// A value of 0 or true means "generate a toc with no depth limit".
+// A value of >0 means "generate a toc with a depth limit of $value past title".
+func toToc(obj interface{}) (int, error) {
+	if obj == nil {
+		return -1, nil
 	}
-	var buf bytes.Buffer
-	hili := highlighting.NewHighlighting(
-		highlighting.WithFormatOptions(
-			html.WithLineNumbers(true),
-			html.WithClasses(true),
-		),
-	)
-	md := goldmark.New(
+	switch val := obj.(type) {
+	case bool:
+		if val {
+			return 0, nil
+		}
+		return -1, nil
+	case int:
+		if val < -1 {
+			val = -1
+		}
+		return val, nil
+	default:
+		return -1, fmt.Errorf("incorrect type for value: %T, should be bool or int", val)
+	}
+}
+
+func AstToc(doc ast.Node, src []byte, mtoc int) error {
+	var tree *toc.TOC
+	if mtoc >= 0 {
+		var err error
+		if mtoc > 0 {
+			tree, err = toc.Inspect(doc, src, toc.Compact(true), toc.MinDepth(0), toc.MaxDepth(mtoc))
+		} else {
+			tree, err = toc.Inspect(doc, src, toc.Compact(true), toc.MinDepth(0))
+		}
+		if err != nil {
+			return err
+		}
+		if tree == nil {
+			return nil // no headings?
+		}
+	}
+	list := toc.RenderList(tree)
+	if list == nil {
+		return nil // no headings
+	}
+
+	list.SetAttributeString("id", []byte("toc-list"))
+
+	// generate # toc
+	heading := ast.NewHeading(2)
+	heading.SetAttributeString("id", []byte("toc"))
+	heading.AppendChild(heading, ast.NewString([]byte("Table of Contents")))
+
+	// insert
+	doc.InsertBefore(doc, doc.FirstChild(), list)
+	doc.InsertBefore(doc, doc.FirstChild(), heading)
+	return nil
+}
+
+func CreateGoldmark(extenders ...goldmark.Extender) goldmark.Markdown {
+	return goldmark.New(
 		goldmark.WithExtensions(
-			extension.GFM,
-			meta.Meta,
-			hili,
-			&anchor.Extender{
-				Position: anchor.Before,
-				Texter:   anchor.Text("#"),
-			},
+			extenders...,
 		),
 		goldmark.WithParserOptions(
 			parser.WithAutoHeadingID(),
@@ -91,23 +135,65 @@ func parseMarkdown(text string) (*ParsedText, error) {
 			ghtml.WithUnsafe(),
 		),
 	)
-	context := parser.NewContext()
-	if err := md.Convert([]byte(text), &buf, parser.WithContext(context)); err != nil {
-		return &parsed, err
-	}
-	parsed.Html = template.HTML(buf.String())
+}
 
+func parseMarkdown(text string) (*ParsedText, error) {
+	parsed := ParsedText{
+		MetaData: &MetaData{
+			Keywords: []string{},
+		},
+	}
+	hili := highlighting.NewHighlighting(
+		highlighting.WithFormatOptions(
+			html.WithLineNumbers(true),
+			html.WithClasses(true),
+		),
+	)
+	extenders := []goldmark.Extender{
+		extension.GFM,
+		extension.Footnote,
+		meta.Meta,
+		hili,
+		&anchor.Extender{
+			Position: anchor.Before,
+			Texter:   anchor.Text("#"),
+		},
+	}
+	md := CreateGoldmark(extenders...)
+	context := parser.NewContext()
+	// we do the Parse/Render steps manually to get a chance to examine the AST
+	btext := []byte(text)
+	doc := md.Parser().Parse(gtext.NewReader(btext), parser.WithContext(context))
 	metaData := meta.Get(context)
+
 	parsed.Title = toString(metaData["title"])
 	parsed.Description = toString(metaData["description"])
 	parsed.Slug = toString(metaData["slug"])
 	parsed.Template = toString(metaData["template"])
+	mtoc, err := toToc(metaData["toc"])
+	if err != nil {
+		return &parsed, fmt.Errorf("front-matter field (%s): %w", "toc", err)
+	}
+	if mtoc >= 0 {
+		err = AstToc(doc, btext, mtoc)
+		if err != nil {
+			return &parsed, fmt.Errorf("error generating toc: %w", err)
+		}
+	}
 
 	keywords, err := toKeywords(metaData["keywords"])
 	if err != nil {
 		return &parsed, err
 	}
 	parsed.Keywords = keywords
+
+	// Rendering happens last to allow any of the previous steps to manipulate
+	// the AST.
+	var buf bytes.Buffer
+	if err := md.Renderer().Render(&buf, btext, doc); err != nil {
+		return &parsed, err
+	}
+	parsed.Html = template.HTML(buf.String())
 
 	return &parsed, nil
 }
