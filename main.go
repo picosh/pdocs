@@ -302,39 +302,17 @@ func (config *DocConfig) GenPage(templates []string, page *Page) error {
 	return nil
 }
 
-func walkSitemap(sitemap *Sitemap, mapper map[string][]*Sitemap) {
-	for _, toc := range sitemap.Children {
-		if toc.Tag == "" {
-			continue
+func (config *DocConfig) genSitemap(node *Sitemap, tmpl []string) error {
+	for idx, toc := range node.Children {
+		toc.ParentHref = node.Href
+
+		if len(toc.Children) > 0 {
+			err := config.genSitemap(toc, tmpl)
+			if err != nil {
+				return err
+			}
 		}
-		if toc.Href != "" {
-			mapper[toc.Tag] = append(mapper[toc.Tag], toc)
-		}
-		walkSitemap(toc, mapper)
-	}
-}
 
-func groupByTag(sitemap *Sitemap) map[string][]*Sitemap {
-	mapper := map[string][]*Sitemap{}
-	walkSitemap(sitemap, mapper)
-	return mapper
-}
-
-func (config *DocConfig) GenSite() error {
-	tmpl, err := walkDir(config.Tmpl)
-	if err != nil {
-		return err
-	}
-
-	for _, toc := range config.Sitemap.Children {
-		for idx := range toc.Children {
-			toc.Children[idx].ParentHref = toc.Href
-		}
-	}
-
-	sitemapByTag := groupByTag(config.Sitemap)
-
-	for idx, toc := range config.Sitemap.Children {
 		if toc.Page == "" {
 			continue
 		}
@@ -350,30 +328,36 @@ func (config *DocConfig) GenSite() error {
 
 		var prev *Sitemap
 		if idx > 0 {
-			prev = config.Sitemap.Children[idx-1]
+			prev = node.Children[idx-1]
 		}
 		var next *Sitemap
-		if idx+1 < len(config.Sitemap.Children) {
-			next = config.Sitemap.Children[idx+1]
+		if idx+1 < len(node.Children) {
+			next = node.Children[idx+1]
 		}
 
 		err = config.GenPage(tmpl, &Page{
-			Page:         toc.Page,
-			Href:         toc.Href,
-			Data:         d,
-			Cur:          toc,
-			Prev:         prev,
-			Next:         next,
-			Sitemap:      config.Sitemap,
-			SitemapByTag: sitemapByTag,
+			Page:    toc.Page,
+			Href:    toc.Href,
+			Data:    d,
+			Cur:     toc,
+			Prev:    prev,
+			Next:    next,
+			Sitemap: config.Sitemap,
 		})
 		if err != nil {
 			return err
 		}
-
 	}
 
 	return nil
+}
+
+func (config *DocConfig) GenSite() error {
+	tmpl, err := walkDir(config.Tmpl)
+	if err != nil {
+		return err
+	}
+	return config.genSitemap(config.Sitemap, tmpl)
 }
 
 type Sitemap struct {
@@ -381,7 +365,6 @@ type Sitemap struct {
 	Text       string
 	Href       string
 	Page       string
-	Tag        string
 	Hidden     bool
 	Data       any
 	Children   []*Sitemap
