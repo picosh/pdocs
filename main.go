@@ -290,6 +290,13 @@ func (config *DocConfig) GenPage(templates []string, page *Page) error {
 		name = page.Data.Slug
 	}
 
+	if _, err := os.Stat(config.Out); os.IsNotExist(err) {
+		err := os.MkdirAll(config.Out, 0755)
+		if err != nil {
+			return err
+		}
+	}
+
 	fp := filepath.Join(
 		config.Out,
 		fmt.Sprintf("%s.html", name),
