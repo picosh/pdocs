@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"html/template"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,6 +28,7 @@ type MetaData struct {
 	Slug        string
 	Keywords    []string
 	Template    string
+	Toc         *toc.TOC
 }
 
 type ParsedText struct {
@@ -89,25 +91,23 @@ func toToc(obj interface{}) (int, error) {
 	}
 }
 
-func AstToc(doc ast.Node, src []byte, mtoc int) error {
+func AstToc(doc ast.Node, src []byte, mtoc int) (*toc.TOC, error) {
 	var tree *toc.TOC
-	if mtoc >= 0 {
-		var err error
-		if mtoc > 0 {
-			tree, err = toc.Inspect(doc, src, toc.Compact(true), toc.MinDepth(0), toc.MaxDepth(mtoc))
-		} else {
-			tree, err = toc.Inspect(doc, src, toc.Compact(true), toc.MinDepth(0))
-		}
-		if err != nil {
-			return err
-		}
-		if tree == nil {
-			return nil // no headings?
-		}
+	var err error
+	if mtoc > 0 {
+		tree, err = toc.Inspect(doc, src, toc.Compact(true), toc.MinDepth(0), toc.MaxDepth(mtoc))
+	} else {
+		tree, err = toc.Inspect(doc, src, toc.Compact(true), toc.MinDepth(0))
+	}
+	if err != nil {
+		return nil, err
+	}
+	if tree == nil {
+		return nil, nil // no headings?
 	}
 	list := toc.RenderList(tree)
 	if list == nil {
-		return nil // no headings
+		return tree, nil // no headings
 	}
 
 	list.SetAttributeString("id", []byte("toc-list"))
@@ -117,10 +117,12 @@ func AstToc(doc ast.Node, src []byte, mtoc int) error {
 	heading.SetAttributeString("id", []byte("toc"))
 	heading.AppendChild(heading, ast.NewString([]byte("Table of Contents")))
 
-	// insert
-	doc.InsertBefore(doc, doc.FirstChild(), list)
-	doc.InsertBefore(doc, doc.FirstChild(), heading)
-	return nil
+	if mtoc >= 0 {
+		// insert
+		doc.InsertBefore(doc, doc.FirstChild(), list)
+		doc.InsertBefore(doc, doc.FirstChild(), heading)
+	}
+	return tree, nil
 }
 
 func CreateGoldmark(extenders ...goldmark.Extender) goldmark.Markdown {
@@ -174,12 +176,11 @@ func parseMarkdown(text string) (*ParsedText, error) {
 	if err != nil {
 		return &parsed, fmt.Errorf("front-matter field (%s): %w", "toc", err)
 	}
-	if mtoc >= 0 {
-		err = AstToc(doc, btext, mtoc)
-		if err != nil {
-			return &parsed, fmt.Errorf("error generating toc: %w", err)
-		}
+	tree, err := AstToc(doc, btext, mtoc)
+	if err != nil {
+		return &parsed, fmt.Errorf("error generating toc: %w", err)
 	}
+	parsed.Toc = tree
 
 	keywords, err := toKeywords(metaData["keywords"])
 	if err != nil {
@@ -198,11 +199,11 @@ func parseMarkdown(text string) (*ParsedText, error) {
 	return &parsed, nil
 }
 
-func walkDir(root string) ([]string, error) {
+func walkDir(logger *slog.Logger, root string) ([]string, error) {
 	var files []string
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if !info.IsDir() {
-			fmt.Println(path)
+			logger.Info("found template", "path", path)
 			files = append(files, path)
 		}
 		return nil
@@ -249,14 +250,13 @@ func AnchorTagSitemap(title string) *Sitemap {
 // ============================================
 
 type Page struct {
-	Page         string
-	Href         string
-	Data         *ParsedText
-	Prev         *Sitemap
-	Next         *Sitemap
-	Cur          *Sitemap
-	Sitemap      *Sitemap
-	SitemapByTag map[string][]*Sitemap
+	Page    string
+	Href    string
+	Data    *ParsedText
+	Prev    *Sitemap
+	Next    *Sitemap
+	Cur     *Sitemap
+	Sitemap *Sitemap
 }
 
 type DocConfig struct {
@@ -264,6 +264,7 @@ type DocConfig struct {
 	Tmpl     string
 	Sitemap  *Sitemap
 	PageTmpl string
+	Logger   *slog.Logger
 }
 
 func (config *DocConfig) GenPage(templates []string, page *Page) error {
@@ -309,12 +310,22 @@ func (config *DocConfig) GenPage(templates []string, page *Page) error {
 	return nil
 }
 
-func (config *DocConfig) genSitemap(node *Sitemap, tmpl []string) error {
-	for idx, toc := range node.Children {
-		toc.ParentHref = node.Href
+func (config *DocConfig) toSitemap(href string, item *toc.Item) *Sitemap {
+	sm := Sitemap{
+		Text: string(item.Title),
+		Href: fmt.Sprintf("%s#%s", href, string(item.ID)),
+	}
+	for _, itm := range item.Items {
+		nextsm := config.toSitemap(href, itm)
+		sm.Children = append(sm.Children, nextsm)
+	}
+	return &sm
+}
 
+func (config *DocConfig) genSitemap(pg *PageComp, node *Sitemap, tmpl []string) error {
+	for _, toc := range node.Children {
 		if len(toc.Children) > 0 {
-			err := config.genSitemap(toc, tmpl)
+			err := config.genSitemap(pg, toc, tmpl)
 			if err != nil {
 				return err
 			}
@@ -333,48 +344,69 @@ func (config *DocConfig) genSitemap(node *Sitemap, tmpl []string) error {
 			return err
 		}
 
-		var prev *Sitemap
-		if idx > 0 {
-			prev = node.Children[idx-1]
-		}
-		var next *Sitemap
-		if idx+1 < len(node.Children) {
-			next = node.Children[idx+1]
+		for _, item := range d.Toc.Items {
+			sm := config.toSitemap(toc.Href, item)
+			toc.Children = append(toc.Children, sm)
 		}
 
-		err = config.GenPage(tmpl, &Page{
+		pg.Pages = append(pg.Pages, &Page{
 			Page:    toc.Page,
 			Href:    toc.Href,
 			Data:    d,
 			Cur:     toc,
-			Prev:    prev,
-			Next:    next,
 			Sitemap: config.Sitemap,
 		})
-		if err != nil {
-			return err
-		}
 	}
 
 	return nil
 }
 
+type PageComp struct {
+	Pages []*Page
+}
+
 func (config *DocConfig) GenSite() error {
-	tmpl, err := walkDir(config.Tmpl)
+	tmpl, err := walkDir(config.Logger, config.Tmpl)
 	if err != nil {
 		return err
 	}
-	return config.genSitemap(config.Sitemap, tmpl)
+
+	pg := &PageComp{}
+	err = config.genSitemap(pg, config.Sitemap, tmpl)
+	if err != nil {
+		return err
+	}
+	for idx, page := range pg.Pages {
+		config.Logger.Info(
+			"generating page",
+			"page", page.Page,
+			"href", page.Href,
+		)
+		var prev *Sitemap
+		if idx > 0 {
+			prev = pg.Pages[idx-1].Cur
+		}
+		var next *Sitemap
+		if idx+1 < len(pg.Pages) {
+			next = pg.Pages[idx+1].Cur
+		}
+		page.Prev = prev
+		page.Next = next
+		err := config.GenPage(tmpl, page)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type Sitemap struct {
-	ParentHref string
-	Text       string
-	Href       string
-	Page       string
-	Hidden     bool
-	Data       any
-	Children   []*Sitemap
+	Text     string
+	Href     string
+	Page     string
+	Hidden   bool
+	Data     any
+	Children []*Sitemap
 }
 
 func (sitemap *Sitemap) Slug() string {
@@ -386,8 +418,5 @@ func (sitemap *Sitemap) Slug() string {
 }
 
 func (sitemap *Sitemap) GenHref() template.HTML {
-	if sitemap.Href == "" {
-		return template.HTML(fmt.Sprintf("%s#%s", sitemap.ParentHref, sitemap.Slug()))
-	}
 	return template.HTML(sitemap.Href)
 }
