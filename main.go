@@ -324,38 +324,36 @@ func (config *DocConfig) toSitemap(href string, item *toc.Item) *Sitemap {
 
 func (config *DocConfig) genSitemap(pg *PageComp, node *Sitemap, tmpl []string) error {
 	for _, toc := range node.Children {
+		if toc.Page != "" {
+			data, err := os.ReadFile(toc.Page)
+			if err != nil {
+				return err
+			}
+			d, err := parseMarkdown(string(data))
+			if err != nil {
+				return err
+			}
+
+			for _, item := range d.Toc.Items {
+				sm := config.toSitemap(toc.Href, item)
+				toc.Children = append(toc.Children, sm)
+			}
+
+			pg.Pages = append(pg.Pages, &Page{
+				Page:    toc.Page,
+				Href:    toc.Href,
+				Data:    d,
+				Cur:     toc,
+				Sitemap: config.Sitemap,
+			})
+		}
+
 		if len(toc.Children) > 0 {
 			err := config.genSitemap(pg, toc, tmpl)
 			if err != nil {
 				return err
 			}
 		}
-
-		if toc.Page == "" {
-			continue
-		}
-
-		data, err := os.ReadFile(toc.Page)
-		if err != nil {
-			return err
-		}
-		d, err := parseMarkdown(string(data))
-		if err != nil {
-			return err
-		}
-
-		for _, item := range d.Toc.Items {
-			sm := config.toSitemap(toc.Href, item)
-			toc.Children = append(toc.Children, sm)
-		}
-
-		pg.Pages = append(pg.Pages, &Page{
-			Page:    toc.Page,
-			Href:    toc.Href,
-			Data:    d,
-			Cur:     toc,
-			Sitemap: config.Sitemap,
-		})
 	}
 
 	return nil
