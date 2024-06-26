@@ -157,7 +157,7 @@ func parseMarkdown(text string) (*ParsedText, error) {
 		meta.Meta,
 		hili,
 		&anchor.Extender{
-			Position: anchor.Before,
+			Position: anchor.After,
 			Texter:   anchor.Text("#"),
 		},
 	}
