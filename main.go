@@ -32,7 +32,8 @@ type MetaData struct {
 }
 
 type ParsedText struct {
-	Html template.HTML
+	Html    template.HTML
+	TocHtml template.HTML
 	*MetaData
 }
 
@@ -91,7 +92,7 @@ func toToc(obj interface{}) (int, error) {
 	}
 }
 
-func AstToc(doc ast.Node, src []byte, mtoc int) (*toc.TOC, error) {
+func AstToc(doc ast.Node, src []byte, mtoc int) (*toc.TOC, ast.Node, error) {
 	var tree *toc.TOC
 	var err error
 	if mtoc > 0 {
@@ -100,29 +101,23 @@ func AstToc(doc ast.Node, src []byte, mtoc int) (*toc.TOC, error) {
 		tree, err = toc.Inspect(doc, src, toc.Compact(true), toc.MinDepth(0))
 	}
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if tree == nil {
-		return nil, nil // no headings?
+		return nil, nil, nil // no headings?
 	}
 	list := toc.RenderList(tree)
 	if list == nil {
-		return tree, nil // no headings
+		return tree, nil, nil // no headings
 	}
 
 	list.SetAttributeString("id", []byte("toc-list"))
 
-	// generate # toc
-	heading := ast.NewHeading(2)
-	heading.SetAttributeString("id", []byte("toc"))
-	heading.AppendChild(heading, ast.NewString([]byte("Table of Contents")))
-
 	if mtoc >= 0 {
 		// insert
-		doc.InsertBefore(doc, doc.FirstChild(), list)
-		doc.InsertBefore(doc, doc.FirstChild(), heading)
+		return tree, list, nil
 	}
-	return tree, nil
+	return tree, nil, nil
 }
 
 func CreateGoldmark(extenders ...goldmark.Extender) goldmark.Markdown {
@@ -176,7 +171,7 @@ func parseMarkdown(text string) (*ParsedText, error) {
 	if err != nil {
 		return &parsed, fmt.Errorf("front-matter field (%s): %w", "toc", err)
 	}
-	tree, err := AstToc(doc, btext, mtoc)
+	tree, listNode, err := AstToc(doc, btext, mtoc)
 	if err != nil {
 		return &parsed, fmt.Errorf("error generating toc: %w", err)
 	}
@@ -195,6 +190,15 @@ func parseMarkdown(text string) (*ParsedText, error) {
 		return &parsed, err
 	}
 	parsed.Html = template.HTML(buf.String())
+
+	if listNode != nil {
+		var tocbuf bytes.Buffer
+		ttext := []byte{}
+		if err := md.Renderer().Render(&tocbuf, ttext, listNode); err != nil {
+			return &parsed, err
+		}
+		parsed.TocHtml = template.HTML(tocbuf.String())
+	}
 
 	return &parsed, nil
 }
