@@ -261,6 +261,7 @@ type Page struct {
 	Next    *Sitemap
 	Cur     *Sitemap
 	Sitemap *Sitemap
+	CacheId string
 }
 
 type DocConfig struct {
@@ -269,6 +270,7 @@ type DocConfig struct {
 	Sitemap  *Sitemap
 	PageTmpl string
 	Logger   *slog.Logger
+	CacheId  string
 }
 
 func (config *DocConfig) GenPage(templates []string, page *Page) error {
@@ -349,6 +351,7 @@ func (config *DocConfig) genSitemap(pg *PageComp, node *Sitemap, tmpl []string) 
 				Data:    d,
 				Cur:     toc,
 				Sitemap: config.Sitemap,
+				CacheId: config.CacheId,
 			})
 		}
 
