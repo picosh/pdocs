@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"html/template"
 	"io"
-	"log/slog"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/alecthomas/chroma/formatters/html"
@@ -243,6 +241,7 @@ func (sitemap *Sitemap) GenHref() template.HTML {
 
 func main() {
 	tmplPaths := flag.String("tmpl", "", "Comma-separated list of template file paths (required)")
+	forceTOC := flag.Bool("toc", false, "Force generate table of contents")
 	flag.Parse()
 
 	if *tmplPaths == "" {
@@ -271,13 +270,34 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Load template files
-	logger := slog.Default()
-	templateFiles := make([]string, len(templatePaths))
-	for i, path := range templatePaths {
-		templateFiles[i] = path
-		logger.Info("found template", "path", path)
+	// If -toc flag is set, ensure TOC is generated
+	if *forceTOC && parsed.Toc != nil && parsed.TocHtml == "" {
+		var tocbuf bytes.Buffer
+		ttext := []byte{}
+		md := CreateGoldmark(
+			extension.GFM,
+			extension.Footnote,
+			highlighting.NewHighlighting(
+				highlighting.WithFormatOptions(
+					html.WithLineNumbers(true),
+					html.WithClasses(true),
+				),
+			),
+		)
+		list := toc.RenderList(parsed.Toc)
+		if list != nil {
+			list.SetAttributeString("id", []byte("toc-list"))
+			if err := md.Renderer().Render(&tocbuf, ttext, list); err != nil {
+				fmt.Fprintf(os.Stderr, "Error rendering TOC: %v\n", err)
+				os.Exit(1)
+			}
+			parsed.TocHtml = template.HTML(tocbuf.String())
+		}
 	}
+
+	// Load template files
+	templateFiles := make([]string, len(templatePaths))
+	copy(templateFiles, templatePaths)
 
 	ts, err := renderTemplate(templateFiles, templatePaths[len(templatePaths)-1])
 	if err != nil {
@@ -311,14 +331,3 @@ func main() {
 	os.Stdout.Write(buf.Bytes())
 }
 
-func walkDir(logger *slog.Logger, root string) ([]string, error) {
-	var files []string
-	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if !info.IsDir() {
-			logger.Info("found template", "path", path)
-			files = append(files, path)
-		}
-		return nil
-	})
-	return files, err
-}
